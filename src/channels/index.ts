@@ -7,3 +7,9 @@
 // self-registration import below.
 
 import './cli.js';
+
+// whatsapp
+import './whatsapp.js';
+
+// slack
+import './slack.js';
