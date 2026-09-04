@@ -20,8 +20,15 @@ import { getDb } from '../db/connection.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { routeInbound } from '../router.js';
+import type { ChannelDefaults } from './adapter.js';
 import { createChatSdkBridge } from './chat-sdk-bridge.js';
 import { registerChannelAdapter } from './channel-registry.js';
+
+const IMESSAGE_DEFAULTS: ChannelDefaults = {
+  dm: { engageMode: 'pattern', engagePattern: '.', threads: false, unknownSenderPolicy: 'strict' },
+  group: { engageMode: 'pattern', engagePattern: '\\b{name}\\b', threads: false, unknownSenderPolicy: 'strict' },
+  mentions: 'dm-only',
+};
 
 // ---------------------------------------------------------------------------
 // Recovery scanner
@@ -42,14 +49,12 @@ async function runRecoveryScan(): Promise<void> {
   }
 
   const centralDb = getDb();
-  const groups = centralDb
-    .prepare(
-      `SELECT DISTINCT mg.id, mg.platform_id
-       FROM messaging_groups mg
-       JOIN messaging_group_agents mga ON mga.messaging_group_id = mg.id
-       WHERE mg.channel_type = 'imessage' AND mg.denied_at IS NULL`,
-    )
-    .all() as Array<{ id: string; platform_id: string }>;
+  const groups = await centralDb.all<{ id: string; platform_id: string }>(
+    `SELECT DISTINCT mg.id, mg.platform_id
+     FROM messaging_groups mg
+     JOIN messaging_group_agents mga ON mga.messaging_group_id = mg.id
+     WHERE mg.channel_type = 'imessage' AND mg.denied_at IS NULL`,
+  );
 
   if (groups.length === 0) {
     log.debug('iMessage recovery: no wired iMessage groups', { run });
@@ -94,9 +99,10 @@ async function runRecoveryScan(): Promise<void> {
       if (messages.length === 0) continue;
 
       // All sessions for this messaging group (to detect already-routed GUIDs)
-      const sessions = centralDb
-        .prepare('SELECT id, agent_group_id FROM sessions WHERE messaging_group_id = ?')
-        .all(mg.id) as Array<{ id: string; agent_group_id: string }>;
+      const sessions = await centralDb.all<{ id: string; agent_group_id: string }>(
+        'SELECT id, agent_group_id FROM sessions WHERE messaging_group_id = ?',
+        mg.id,
+      );
 
       for (const msg of messages) {
         // Check every known session's inbound.db for this GUID
@@ -233,4 +239,5 @@ registerChannelAdapter('imessage', {
 
     return bridge;
   },
+  defaults: IMESSAGE_DEFAULTS,
 });

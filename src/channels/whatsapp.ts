@@ -37,7 +37,34 @@ import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
-import type { ChannelAdapter, ChannelSetup, ConversationInfo, InboundMessage, OutboundMessage } from './adapter.js';
+import type {
+  ChannelAdapter,
+  ChannelDefaults,
+  ChannelSetup,
+  ConversationInfo,
+  InboundMessage,
+  OutboundMessage,
+} from './adapter.js';
+
+// Shared vs dedicated number changes every default (see channel-declarations.test.ts).
+function resolveSharedMode(v: string | undefined): boolean {
+  return v !== 'true';
+}
+function computeWhatsappDefaults(shared: boolean): ChannelDefaults {
+  return shared
+    ? {
+        dm: { engageMode: 'pattern', engagePattern: '.', threads: false, unknownSenderPolicy: 'strict' },
+        group: { engageMode: 'pattern', engagePattern: '\\b{name}\\b', threads: false, unknownSenderPolicy: 'strict' },
+        mentions: 'never',
+      }
+    : {
+        dm: { engageMode: 'pattern', engagePattern: '.', threads: false, unknownSenderPolicy: 'request_approval' },
+        group: { engageMode: 'mention', threads: false, unknownSenderPolicy: 'request_approval' },
+        mentions: 'platform',
+      };
+}
+const _waEnv = readEnvFile(['ASSISTANT_HAS_OWN_NUMBER']);
+const WHATSAPP_DEFAULTS: ChannelDefaults = computeWhatsappDefaults(resolveSharedMode(_waEnv.ASSISTANT_HAS_OWN_NUMBER));
 
 // Baileys v6 bug: getPlatformId sends charCode (49) instead of enum value (1).
 // Fixed in Baileys 7.x but not backported. Without this, pairing codes fail with
@@ -721,4 +748,5 @@ registerChannelAdapter('whatsapp', {
 
     return adapter;
   },
+  defaults: WHATSAPP_DEFAULTS,
 });
