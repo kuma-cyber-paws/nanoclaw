@@ -124,6 +124,8 @@ export const TOOL_ALLOWLIST = [
   'ToolSearch',
   'Skill',
   'NotebookEdit',
+  'mcp__gmail__*',
+  'mcp__calendar__*',
 ];
 
 // MCP server names are sanitized by the SDK when forming tool prefixes:

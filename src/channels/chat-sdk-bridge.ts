@@ -574,7 +574,7 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
         userName: adapter.userName || 'NanoClaw',
         concurrency: config.concurrency ?? 'concurrent',
         state,
-        logger: 'silent',
+        logger: 'warn',
       });
 
       // Four SDK dispatch paths — bridge just forwards. All per-wiring
