@@ -97,6 +97,13 @@ LOGS_DIR="$PROJECT_ROOT/logs"
 STEPS_DIR="$LOGS_DIR/setup-steps"
 PROGRESS_LOG="$LOGS_DIR/setup.log"
 
+# Honor NANOCLAW_NO_DIAGNOSTICS from .env — the shell does not source .env.
+if [ -z "${NANOCLAW_NO_DIAGNOSTICS:-}" ] && [ -f "$PROJECT_ROOT/.env" ]; then
+  _ncl_no_diag=$(grep '^NANOCLAW_NO_DIAGNOSTICS=' "$PROJECT_ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2-)
+  if [ "$_ncl_no_diag" = "1" ]; then export NANOCLAW_NO_DIAGNOSTICS=1; fi
+  unset _ncl_no_diag
+fi
+
 # Diagnostics: persisted install-id + fire-and-forget emit. Sourced early
 # so `setup_launched` covers dropoff before bootstrap even starts.
 # shellcheck source=setup/lib/diagnostics.sh

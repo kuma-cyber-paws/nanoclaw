@@ -154,6 +154,9 @@ async function main(): Promise<void> {
 
   printIntro();
   initProgressionLog();
+  // Honor NANOCLAW_NO_DIAGNOSTICS from .env — the setup process does not source .env.
+  const noDiag = readEnvKey('NANOCLAW_NO_DIAGNOSTICS');
+  if (noDiag === '1') process.env.NANOCLAW_NO_DIAGNOSTICS = '1';
   phEmit('auto_started');
 
   // Welcome menu — default path or open advanced overrides before any setup
