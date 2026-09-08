@@ -31,7 +31,6 @@ import './whatsapp-cloud.js';
 import './resend.js';
 import './webex.js';
 import './imessage.js';
-import './whatsapp.js';
 import './signal.js';
 import './emacs.js';
 import './wechat.js';
@@ -53,10 +52,6 @@ const EXPECTED: Record<
   resend: { groupMode: 'pattern', groupThreads: false, mentions: 'dm-only' },
   webex: { groupMode: 'mention', groupThreads: true, mentions: 'platform' },
   imessage: { groupMode: 'pattern', groupThreads: false, mentions: 'dm-only' },
-  // whatsapp is env-computed; the test env has no ASSISTANT_HAS_OWN_NUMBER=true
-  // so the shared-number declaration applies. (Dedicated mode is covered by
-  // the adapter's own tests once PR8 lands the behavior split.)
-  whatsapp: { groupMode: 'pattern', groupThreads: false, mentions: 'never' },
   // signal emits top-level isGroup/isMention (DM→true, group→account tagged);
   // non-threaded, so group mode is 'mention', never sticky.
   signal: { groupMode: 'mention', groupThreads: false, mentions: 'platform' },

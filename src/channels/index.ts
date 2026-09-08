@@ -53,9 +53,6 @@ import './mattermost.js';
 
 // gmail (native, no Chat SDK)
 
-// whatsapp (native, no Chat SDK)
-import './whatsapp.js';
-
 // signal (native, no Chat SDK — signal-cli TCP JSON-RPC daemon)
 // import './signal.js';
 
