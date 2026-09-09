@@ -40,6 +40,17 @@ const RECOVERY_LOOKBACK_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 let scanCount = 0;
 
+// In-process dedup: GUIDs routed since this process started.
+// Prevents re-routing on every scanner tick while the session DB
+// is still being committed, or when old sessions no longer exist
+// in the sessions table (so the inbound.db check can't fire).
+const routedInProcess = new Set<string>();
+export { routedInProcess as _routedInProcessForTesting };
+
+export async function _runRecoveryScanForTesting(): Promise<void> {
+  return runRecoveryScan();
+}
+
 async function runRecoveryScan(): Promise<void> {
   const run = ++scanCount;
   const chatDbPath = path.join(os.homedir(), 'Library', 'Messages', 'chat.db');
@@ -105,6 +116,19 @@ async function runRecoveryScan(): Promise<void> {
       );
 
       for (const msg of messages) {
+        // Skip attachment-only messages — no text means the engage-pattern
+        // ('.') drops them silently, so they'll never appear in inbound.db
+        // and the dedup check below can never confirm them as already-routed.
+        // Without this skip, attachment GUIDs loop every 2 minutes forever.
+        if (!msg.text?.trim()) continue;
+
+        // In-process dedup: skip GUIDs we already routed this run so the
+        // scanner doesn't re-route on every tick while commits are in flight.
+        if (routedInProcess.has(msg.guid)) {
+          totalAlreadyRouted++;
+          continue;
+        }
+
         // Check every known session's inbound.db for this GUID
         let alreadyRouted = false;
         for (const sess of sessions) {
@@ -119,8 +143,19 @@ async function runRecoveryScan(): Promise<void> {
               alreadyRouted = true;
               break;
             }
-          } catch {
-            // inbound.db may be temporarily locked or mid-schema-init — skip
+          } catch (err) {
+            // inbound.db may be temporarily locked (SQLITE_BUSY) or
+            // mid-schema-init. Treat as already-routed to avoid duplicate
+            // delivery — a locked DB means the session is active and the
+            // message was very likely delivered.
+            log.debug('iMessage recovery: could not read inbound.db, treating as routed', {
+              run,
+              guid: msg.guid,
+              inboundPath,
+              err,
+            });
+            alreadyRouted = true;
+            break;
           } finally {
             inDb?.close();
           }
@@ -168,6 +203,7 @@ async function runRecoveryScan(): Promise<void> {
           },
         });
 
+        routedInProcess.add(msg.guid);
         totalRerouted++;
       }
     }
