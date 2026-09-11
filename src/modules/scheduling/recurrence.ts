@@ -64,15 +64,18 @@ export async function handleRecurrence(inDb: InboundMailbox, session: Session): 
       const interval = CronExpressionParser.parse(msg.recurrence, { tz });
       const cronNext = interval.next().toDate();
       const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      // Tasks migrated from v1 may have series_id = NULL. Fall back to the
+      // task's own id (self-referential root) so armNextTask never receives null.
+      const effectiveSeriesId = msg.seriesId ?? msg.id;
 
-      const scriptFails = inDb.trailingFailedRuns(msg.seriesId);
+      const scriptFails = inDb.trailingFailedRuns(effectiveSeriesId);
 
       if (scriptFails >= SCRIPT_FAIL_PAUSE_CAP) {
         // Re-arm PAUSED at the cron time so `ncl tasks resume` revives the
         // series in place; leave the why in the run log.
         await inDb.armNextTask(msg.id, {
           id: newId,
-          seriesId: msg.seriesId,
+          seriesId: effectiveSeriesId,
           processAfter: cronNext.toISOString(),
           recurrence: msg.recurrence,
           content: msg.content,
@@ -80,11 +83,11 @@ export async function handleRecurrence(inDb: InboundMailbox, session: Session): 
         });
         await appendHostTaskNote(
           session.agent_group_id,
-          msg.seriesId,
-          `auto-paused after ${scriptFails} consecutive script failures (host); fix the script, then \`ncl tasks resume ${msg.seriesId}\``,
+          effectiveSeriesId,
+          `auto-paused after ${scriptFails} consecutive script failures (host); fix the script, then \`ncl tasks resume ${effectiveSeriesId}\``,
         );
         log.warn('Task series auto-paused: script keeps failing', {
-          seriesId: msg.seriesId,
+          seriesId: effectiveSeriesId,
           scriptFails,
           sessionId: session.id,
         });
@@ -96,7 +99,7 @@ export async function handleRecurrence(inDb: InboundMailbox, session: Session): 
 
       await inDb.armNextTask(msg.id, {
         id: newId,
-        seriesId: msg.seriesId,
+        seriesId: effectiveSeriesId,
         processAfter: nextRun,
         recurrence: msg.recurrence,
         content: msg.content,
@@ -105,7 +108,7 @@ export async function handleRecurrence(inDb: InboundMailbox, session: Session): 
       log.info('Inserted next recurrence', {
         originalId: msg.id,
         newId,
-        seriesId: msg.seriesId,
+        seriesId: effectiveSeriesId,
         nextRun,
         ...(scriptFails > 0 && { scriptFails, backoffMin: scriptBackoffMinutes(scriptFails) }),
         sessionId: session.id,
