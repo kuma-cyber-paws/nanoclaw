@@ -141,6 +141,34 @@ describe('handleRecurrence', () => {
     expect(follow.process_after).toMatch(/T03:30:00/);
   });
 
+  it('handles null series_id from v1-migrated tasks (falls back to task id)', async () => {
+    // v1-migrated tasks may have series_id = NULL in the DB. handleRecurrence
+    // must not propagate null into armNextTask → parseTaskWrite which rejects
+    // non-strings. The follow-up task's series_id must be the original task's id.
+    const db = freshDb();
+    insertTaskRow(db, {
+      id: 'task-v1',
+      seriesId: 'task-v1',
+      processAfter: '2020-01-01T00:00:00.000Z',
+      recurrence: '0 9 * * *',
+      content: JSON.stringify({ prompt: 'legacy task' }),
+    });
+    // Simulate v1 migration: clear series_id to NULL after insertion
+    db.prepare(`UPDATE messages_in SET series_id = NULL, status = 'completed' WHERE id = 'task-v1'`).run();
+
+    // Must not throw
+    await expect(handleRecurrence(wrapSqliteInbound(db), fakeSession())).resolves.toBeUndefined();
+
+    const follow = db.prepare(`SELECT series_id, status FROM messages_in WHERE id != 'task-v1'`).get() as {
+      series_id: string;
+      status: string;
+    };
+    expect(follow).toBeDefined();
+    expect(follow.status).toBe('pending');
+    // Falls back to msg.id as the effective series root
+    expect(follow.series_id).toBe('task-v1');
+  });
+
   it('does not clone rows whose recurrence is already cleared', async () => {
     const db = freshDb();
     insertTaskRow(db, {
