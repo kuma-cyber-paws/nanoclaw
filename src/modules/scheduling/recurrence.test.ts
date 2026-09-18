@@ -257,6 +257,39 @@ describe('handleRecurrence — script-failure backoff (streak derived from faile
     expect(original.recurrence).toBeNull(); // not re-cloned next sweep
   });
 
+  it('re-arms (pending) with effectiveSeriesId when series_id is null (v1 migration)', async () => {
+    // With all rows having series_id=NULL, trailingFailedRuns(effectiveSeriesId)
+    // where effectiveSeriesId='task-null-s-7' (the task's own id) finds only 1
+    // failed row — the other 7 have series_id=NULL and won't match. So
+    // scriptFails=1 < cap=8 → backoff re-arm as 'pending', not 'paused'.
+    // The key invariant: effectiveSeriesId fallback must not throw, and the
+    // follow-up must carry the correct series_id root.
+    const db = freshDb();
+    const rows = 8;
+    for (let i = 0; i < rows; i++) {
+      insertTaskRow(db, {
+        id: `task-null-s-${i}`,
+        seriesId: `task-null-s-${i}`, // will be cleared to NULL below
+        processAfter: '2020-01-01T00:00:00.000Z',
+        recurrence: i === rows - 1 ? '* * * * *' : null,
+        content: JSON.stringify({ prompt: 'monitor' }),
+      });
+      db.prepare(`UPDATE messages_in SET series_id = NULL, status = 'failed' WHERE id = ?`).run(`task-null-s-${i}`);
+    }
+
+    await expect(handleRecurrence(wrapSqliteInbound(db), fakeSession())).resolves.toBeUndefined();
+
+    // trailingFailedRuns counts only 1 row (effectiveSeriesId matches only itself),
+    // so the cap is not reached → follow-up is 'pending' with backoff, not 'paused'.
+    const follow = db.prepare(`SELECT status, series_id FROM messages_in WHERE id NOT LIKE 'task-null-s-%'`).get() as {
+      status: string;
+      series_id: string;
+    };
+    expect(follow).toBeDefined();
+    expect(follow.status).toBe('pending');
+    expect(follow.series_id).toBe('task-null-s-7'); // last row in the streak = the re-armed root
+  });
+
   it('writes the auto-pause note into the series run log via the shared appendRunLog', async () => {
     const db = freshDb();
     seedFailedStreak(db, 8);

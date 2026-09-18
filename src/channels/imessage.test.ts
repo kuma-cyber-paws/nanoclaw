@@ -216,6 +216,69 @@ describe('recovery scanner — SQLITE_BUSY treated as already-routed (Bug 2: re-
   });
 });
 
+describe('recovery scanner — chat.db not found', () => {
+  it('exits early without opening any db when chat.db is missing', async () => {
+    // existsSync fires BEFORE the groups query — no centralAll mock needed here;
+    // adding one would leave an unconsumed `once` that poisons subsequent tests.
+    mockExistsSync.mockReturnValue(false);
+    await _runRecoveryScanForTesting();
+    expect(MockDatabase).not.toHaveBeenCalled();
+    expect(mockRouteInbound).not.toHaveBeenCalled();
+  });
+});
+
+describe('recovery scanner — outer catch (chat.db open throws)', () => {
+  it('swallows errors from opening chat.db without crashing', async () => {
+    // The outer try fires AFTER the groups query but BEFORE the sessions query —
+    // only one `once` is consumed, so no sessions mock is added here.
+    mockCentralAll.mockResolvedValueOnce([{ id: 'mg-1', platform_id: 'imessage:+15550001111' }]);
+    MockDatabase.mockImplementation(function (this: unknown, filePath: string) {
+      if (filePath.endsWith('chat.db')) throw new Error('disk I/O error');
+      return { prepare: vi.fn(() => ({ get: mockInboundGet })), pragma: vi.fn(), close: vi.fn() };
+    });
+    await expect(_runRecoveryScanForTesting()).resolves.toBeUndefined();
+    expect(mockRouteInbound).not.toHaveBeenCalled();
+  });
+});
+
+describe('recovery scanner — sender_id fallback and group chat detection', () => {
+  it('falls back to chatIdentifier as senderId when sender_id is null', async () => {
+    mockCentralAll
+      .mockResolvedValueOnce([{ id: 'mg-1', platform_id: 'imessage:+15550001111' }])
+      .mockResolvedValueOnce([]);
+    mockChatDbAll.mockReturnValue([makeMsg({ guid: 'NULL-SENDER', sender_id: null as unknown as string })]);
+    await _runRecoveryScanForTesting();
+    expect(mockRouteInbound).toHaveBeenCalledOnce();
+    const payload = mockRouteInbound.mock.calls[0][0];
+    const content = JSON.parse(payload.message.content);
+    // sender_id null → falls back to chatIdentifier (+15550001111)
+    expect(content.senderId).toBe('imessage:+15550001111');
+  });
+
+  it('sets isGroup=true and isMention=false for group chats (platform_id contains ;-;)', async () => {
+    const groupPlatformId = 'imessage:chat123456789;-;+15550001111';
+    mockCentralAll.mockResolvedValueOnce([{ id: 'mg-grp', platform_id: groupPlatformId }]).mockResolvedValueOnce([]);
+    mockChatDbAll.mockReturnValue([makeMsg({ guid: 'GROUP-1', text: 'hey group' })]);
+    await _runRecoveryScanForTesting();
+    expect(mockRouteInbound).toHaveBeenCalledOnce();
+    const payload = mockRouteInbound.mock.calls[0][0];
+    expect(payload.message.isGroup).toBe(true);
+    expect(payload.message.isMention).toBe(false);
+  });
+});
+
+describe('recovery scanner — no sessions for group (empty sessions list)', () => {
+  it('routes when there are no sessions to check inbound.db against', async () => {
+    mockCentralAll
+      .mockResolvedValueOnce([{ id: 'mg-1', platform_id: 'imessage:+15550001111' }])
+      .mockResolvedValueOnce([]); // no sessions → alreadyRouted stays false
+    mockChatDbAll.mockReturnValue([makeMsg({ guid: 'NO-SESS-1', text: 'hello' })]);
+    await _runRecoveryScanForTesting();
+    expect(mockRouteInbound).toHaveBeenCalledOnce();
+    expect(_routedInProcessForTesting.has('NO-SESS-1')).toBe(true);
+  });
+});
+
 describe('recovery scanner — normal dedup via inbound.db', () => {
   it('skips a GUID found in inbound.db', async () => {
     setupOneGroup([makeMsg({ guid: 'FOUND-1', text: 'already delivered' })]);
