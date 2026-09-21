@@ -30,7 +30,8 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "deploy": "pnpm run build && pnpm exec tsx scripts/upgrade-state.ts set && launchctl kickstart -k gui/$(id -u)/com.nanoclaw"
   },
   "dependencies": {
     "@beeper/chat-adapter-matrix": "^0.2.0",
